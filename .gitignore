@@ -5,7 +5,11 @@ __pycache__/
 
 # C extensions
 *.so
+# Generated video processing outputs
+data/output/
 
+# Local test input videos
+data/input/*.mp4
 # Distribution / packaging
 .Python
 build/
