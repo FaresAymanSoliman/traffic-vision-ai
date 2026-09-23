@@ -112,12 +112,3 @@ def test_processor_rejects_same_input_and_output_path(
             output_path=input_path,
         )
 
-import gc
-import pytest
-
-@pytest.fixture(autouse=True)
-def cleanup_handles():
-    yield
-    # Force Python to release unreferenced file objects before pytest cleans up tempdir
-    gc.collect()
-    
