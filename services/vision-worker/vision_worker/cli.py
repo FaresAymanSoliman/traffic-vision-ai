@@ -3,6 +3,10 @@ import json
 import sys
 from pathlib import Path
 
+from vision_worker.detection.yolo_detector import (
+    DetectorConfigurationError,
+    YoloVehicleDetector,
+)
 from vision_worker.video.processor import (
     VideoProcessingError,
     VideoProcessor,
@@ -11,7 +15,7 @@ from vision_worker.video.processor import (
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=("Process a traffic video and create an annotated output video.")
+        description=("Detect vehicles in a traffic video using YOLO.")
     )
 
     parser.add_argument(
@@ -35,6 +39,32 @@ def parse_arguments() -> argparse.Namespace:
         help="Path for the JSON processing summary.",
     )
 
+    parser.add_argument(
+        "--model",
+        default="yolo11n.pt",
+        help="YOLO model name or path.",
+    )
+
+    parser.add_argument(
+        "--confidence",
+        type=float,
+        default=0.35,
+        help="Minimum detection confidence between 0 and 1.",
+    )
+
+    parser.add_argument(
+        "--image-size",
+        type=int,
+        default=640,
+        help="YOLO inference image size.",
+    )
+
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Inference device, such as cpu, 0, or cuda:0.",
+    )
+
     return parser.parse_args()
 
 
@@ -54,9 +84,17 @@ def display_progress(
 
 def main() -> None:
     arguments = parse_arguments()
-    processor = VideoProcessor()
 
     try:
+        detector = YoloVehicleDetector(
+            model_path=arguments.model,
+            confidence_threshold=arguments.confidence,
+            image_size=arguments.image_size,
+            device=arguments.device,
+        )
+
+        processor = VideoProcessor(detector=detector)
+
         summary = processor.process(
             input_path=arguments.input,
             output_path=arguments.output,
@@ -65,10 +103,18 @@ def main() -> None:
         )
 
         print()
-        print("Video processing complete.")
+        print("Vehicle detection complete.")
         print(json.dumps(summary.to_dict(), indent=2))
-    except VideoProcessingError as error:
-        print(f"\nVideo processing failed: {error}", file=sys.stderr)
+
+    except (
+        DetectorConfigurationError,
+        VideoProcessingError,
+    ) as error:
+        print(
+            f"\nVehicle detection failed: {error}",
+            file=sys.stderr,
+        )
+
         raise SystemExit(1) from error
 
 
