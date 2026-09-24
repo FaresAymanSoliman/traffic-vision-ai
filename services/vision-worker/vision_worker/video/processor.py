@@ -10,9 +10,14 @@ from cv2.typing import MatLike
 from vision_worker.detection.drawer import draw_detections
 from vision_worker.detection.models import Detection
 from vision_worker.detection.yolo_detector import YoloVehicleDetector
+from vision_worker.tracking.drawer import draw_tracks
+from vision_worker.tracking.history import TrackHistory
+from vision_worker.tracking.models import TrackedVehicle
+from vision_worker.tracking.yolo_tracker import YoloVehicleTracker
 from vision_worker.video.models import (
     DetectionStatistics,
     ProcessingSummary,
+    TrackingStatistics,
     VideoMetadata,
 )
 
@@ -27,6 +32,7 @@ class VideoProcessor:
     def __init__(
         self,
         detector: YoloVehicleDetector | None = None,
+        tracker: YoloVehicleTracker | None = None,
         codec: str = "mp4v",
     ) -> None:
         if len(codec) != 4:
@@ -34,6 +40,7 @@ class VideoProcessor:
 
         self._detector = detector
         self._codec = codec
+        self._tracker = tracker
 
     def read_metadata(self, input_path: Path) -> VideoMetadata:
         input_path = input_path.resolve()
@@ -89,7 +96,13 @@ class VideoProcessor:
         processed_frames = 0
         total_detections = 0
         maximum_vehicles_in_frame = 0
+        maximum_active_tracks = 0
         class_detection_counts: Counter[str] = Counter()
+
+        track_history = TrackHistory(
+            maximum_points_per_track=30,
+            maximum_missing_frames=90,
+        )
 
         started_at = time.perf_counter()
 
@@ -113,16 +126,25 @@ class VideoProcessor:
                 )
 
                 detections = self._detect_vehicles(frame)
+                tracked_vehicles = self._track_vehicles(frame)
+                track_history.update(
+                    tracked_vehicles=tracked_vehicles,
+                    frame_number=processed_frames,
+                )
 
-                total_detections += len(detections)
+                total_detections += len(tracked_vehicles)
 
                 maximum_vehicles_in_frame = max(
                     maximum_vehicles_in_frame,
-                    len(detections),
+                    len(tracked_vehicles),
+                )
+
+                maximum_active_tracks = max(
+                    maximum_active_tracks, len(tracked_vehicles)
                 )
 
                 class_detection_counts.update(
-                    detection.class_name for detection in detections
+                    vehicle.class_name for vehicle in tracked_vehicles
                 )
 
                 processed_frame = self._process_frame(
@@ -131,6 +153,8 @@ class VideoProcessor:
                     timestamp_seconds=timestamp_seconds,
                     metadata=metadata,
                     detections=detections,
+                    tracked_vehicles=tracked_vehicles,
+                    track_history=track_history,
                 )
 
                 writer.write(processed_frame)
@@ -181,6 +205,12 @@ class VideoProcessor:
             class_detection_counts=dict(sorted(class_detection_counts.items())),
         )
 
+        tracking_statistics = TrackingStatistics(
+            unique_track_count=track_history.unique_count(),
+            maximum_active_track=maximum_active_tracks,
+            unique_tracks_by_class=track_history.unique_counts_by_class(),
+        )
+
         summary = ProcessingSummary(
             input_path=input_path,
             output_path=output_path,
@@ -189,8 +219,10 @@ class VideoProcessor:
             processing_time_seconds=elapsed_seconds,
             average_processing_fps=average_processing_fps,
             model_name=(
-                self._detector.model_path if self._detector is not None else None
+                # self._detector.model_path if self._detector is not None else None
+                self._tracker.model_path if self._tracker is not None else None
             ),
+            tracking_statistics=tracking_statistics,
             detection_statistics=detection_statistics,
         )
 
@@ -210,6 +242,15 @@ class VideoProcessor:
             return []
 
         return self._detector.detect(frame)
+
+    def _track_vehicles(
+        self,
+        frame: MatLike,
+    ) -> list:
+        if self._tracker is None:
+            return []
+
+        return self._tracker.track(frame)
 
     def _extract_metadata(
         self,
@@ -267,8 +308,16 @@ class VideoProcessor:
         timestamp_seconds: float,
         metadata: VideoMetadata,
         detections: list[Detection],
+        tracked_vehicles: list[TrackedVehicle],
+        track_history: TrackHistory,
     ) -> MatLike:
         draw_detections(frame, detections)
+
+        draw_tracks(
+            frame=frame,
+            tracked_vehicles=tracked_vehicles,
+            track_history=track_history,
+        )
 
         overlay_height = min(
             100,
@@ -298,6 +347,8 @@ class VideoProcessor:
             f"Frame: {frame_number} | "
             f"Time: {timestamp_seconds:.2f}s | "
             f"Vehicles: {len(detections)}"
+            f"Active tracks: {len(tracked_vehicles)}"
+            f"Observed IDs: {track_history.unique_count()}"
         )
 
         cv2.putText(

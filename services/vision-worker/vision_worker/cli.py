@@ -7,6 +7,10 @@ from vision_worker.detection.yolo_detector import (
     DetectorConfigurationError,
     YoloVehicleDetector,
 )
+from vision_worker.tracking.yolo_tracker import (
+    TrackerConfigurationError,
+    YoloVehicleTracker,
+)
 from vision_worker.video.processor import (
     VideoProcessingError,
     VideoProcessor,
@@ -16,6 +20,12 @@ from vision_worker.video.processor import (
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=("Detect vehicles in a traffic video using YOLO.")
+    )
+
+    parser.add_argument(
+        "--tracker",
+        default="bytetrack.yaml",
+        help="Ultralytics tracker configuration,",
     )
 
     parser.add_argument(
@@ -93,7 +103,16 @@ def main() -> None:
             device=arguments.device,
         )
 
+        tracker = YoloVehicleTracker(
+            model_path=arguments.model,
+            tracker_config=arguments.tracker,
+            confidence_threshold=arguments.confidence,
+            image_size=arguments.image_size,
+            device=arguments.device,
+        )
+
         processor = VideoProcessor(detector=detector)
+        processor = VideoProcessor(tracker=tracker)
 
         summary = processor.process(
             input_path=arguments.input,
@@ -104,11 +123,13 @@ def main() -> None:
 
         print()
         print("Vehicle detection complete.")
+        print("Vehicle tracking complete.")
         print(json.dumps(summary.to_dict(), indent=2))
 
     except (
         DetectorConfigurationError,
         VideoProcessingError,
+        TrackerConfigurationError,
     ) as error:
         print(
             f"\nVehicle detection failed: {error}",

@@ -111,4 +111,3 @@ def test_processor_rejects_same_input_and_output_path(
             input_path=input_path,
             output_path=input_path,
         )
-
