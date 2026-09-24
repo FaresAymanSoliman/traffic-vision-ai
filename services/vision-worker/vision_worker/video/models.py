@@ -41,6 +41,20 @@ class DetectionStatistics:
         }
 
 
+@dataclass
+class TrackingStatistics:
+    unique_track_count: int = 0
+    maximum_active_track: int = 0
+    unique_tracks_by_class: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "unique_track_count": self.unique_track_count,
+            "maximum_active_tracks": self.maximum_active_track,
+            "unique_tracks_by_class": self.unique_tracks_by_class,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessingSummary:
     input_path: Path
@@ -51,6 +65,7 @@ class ProcessingSummary:
     average_processing_fps: float
     model_name: str | None = None
     detection_statistics: DetectionStatistics | None = None
+    tracking_statistics: TrackingStatistics | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
@@ -71,5 +86,8 @@ class ProcessingSummary:
 
         if self.detection_statistics is not None:
             result["detection_statistics"] = self.detection_statistics.to_dict()
+
+        if self.tracking_statistics is not None:
+            result["tracking_statistics"] = self.tracking_statistics.to_dict()
 
         return result
