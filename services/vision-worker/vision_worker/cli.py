@@ -16,6 +16,12 @@ from vision_worker.video.processor import (
     VideoProcessor,
 )
 
+from vision_worker.counting.line_counter import LineCounter
+from vision_worker.counting.models import CountingLine
+from vision_worker.tracking.models import Point
+
+
+
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -75,6 +81,48 @@ def parse_arguments() -> argparse.Namespace:
         help="Inference device, such as cpu, 0, or cuda:0.",
     )
 
+    parser.add_argument(
+        "--line-id",
+        default = "main-road",
+        help = "Identifier for the counting line.",
+    )
+
+    parser.add_argument(
+        "--line-start-x",
+        type = int,
+        required = True,
+        help = "Counting-line start x coordinate.",
+    )
+
+    parser.add_argument(
+        "--line-start-y",
+        type = int,
+        required = True,
+        help = "Counting-line start y coordinate.",
+    )
+
+    parser.add_argument(
+        "--line-end-x",
+        type = int,
+        required = True,
+        help = "Counting-line end x coordinate.",
+    )
+
+    parser.add_argument(
+        "--line-end-y",
+        type = int,
+        required = True,
+        help = "Counting-line end y coordinate.",
+    )
+
+    parser.add_argument(
+        "--minimum-movement",
+        type = float,
+        default = 2.0,
+        help = "Minimum vehicle movement (in pixels) to count as a crossing event.",
+    )
+    
+
     return parser.parse_args()
 
 
@@ -111,8 +159,28 @@ def main() -> None:
             device=arguments.device,
         )
 
-        processor = VideoProcessor(detector=detector)
-        processor = VideoProcessor(tracker=tracker)
+        counting_line = CountingLine(
+            line_id = arguments.line_id,
+            start = Point(
+                x = arguments.line_start_x,
+                y = arguments.line_start_y,
+
+            ),
+
+            end = Point(
+                x = arguments.line_end_x,
+                y = arguments.line_end_y,
+            ),
+        )
+
+        line_counter = LineCounter(
+            counting_line = counting_line,
+            minimum_movement_pixels = arguments.minimum_movement,
+        )
+
+        #processor = VideoProcessor(detector=detector)
+        processor = VideoProcessor(tracker=tracker, line_counter=line_counter)
+
 
         summary = processor.process(
             input_path=arguments.input,
@@ -123,13 +191,14 @@ def main() -> None:
 
         print()
         print("Vehicle detection complete.")
-        print("Vehicle tracking complete.")
+        print("Vehicle tracking and counting complete.")
         print(json.dumps(summary.to_dict(), indent=2))
 
     except (
         DetectorConfigurationError,
         VideoProcessingError,
         TrackerConfigurationError,
+        ValueError,
     ) as error:
         print(
             f"\nVehicle detection failed: {error}",
