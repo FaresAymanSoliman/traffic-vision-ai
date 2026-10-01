@@ -56,6 +56,27 @@ class TrackingStatistics:
 
 
 @dataclass(frozen=True, slots=True)
+class CountingStatistics:
+    line_id: str
+    total_crossings: int 
+    counts_by_class: dict[str, int] = field(
+        default_factory = dict
+    )
+
+    counts_by_direction: dict[str, int] = field(
+        default_factory = dict
+    )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "line_id": self.line_id,
+            "total_crossings": self.total_crossings,
+            "counts_by_class": self.counts_by_class,
+            "counts_by_direction": self.counts_by_direction,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessingSummary:
     input_path: Path
     output_path: Path
@@ -66,7 +87,7 @@ class ProcessingSummary:
     model_name: str | None = None
     detection_statistics: DetectionStatistics | None = None
     tracking_statistics: TrackingStatistics | None = None
-
+    counting_statistics: CountingStatistics | None = None
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
 
@@ -89,5 +110,8 @@ class ProcessingSummary:
 
         if self.tracking_statistics is not None:
             result["tracking_statistics"] = self.tracking_statistics.to_dict()
+
+        if self.counting_statistics is not None:
+            result["counting_statistics"] = self.counting_statistics.to_dict()
 
         return result

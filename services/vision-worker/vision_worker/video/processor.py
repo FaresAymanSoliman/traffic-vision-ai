@@ -14,7 +14,11 @@ from vision_worker.tracking.drawer import draw_tracks
 from vision_worker.tracking.history import TrackHistory
 from vision_worker.tracking.models import TrackedVehicle
 from vision_worker.tracking.yolo_tracker import YoloVehicleTracker
+from vision_worker.counting.drawer import draw_counting_information
+from vision_worker.counting.line_counter import LineCounter
+from vision_worker.counting.models import CountEvent
 from vision_worker.video.models import (
+    CountingStatistics,
     DetectionStatistics,
     ProcessingSummary,
     TrackingStatistics,
@@ -33,6 +37,7 @@ class VideoProcessor:
         self,
         detector: YoloVehicleDetector | None = None,
         tracker: YoloVehicleTracker | None = None,
+        line_counter: LineCounter | None = None,
         codec: str = "mp4v",
     ) -> None:
         if len(codec) != 4:
@@ -41,7 +46,7 @@ class VideoProcessor:
         self._detector = detector
         self._codec = codec
         self._tracker = tracker
-
+        self._line_counter = line_counter
     def read_metadata(self, input_path: Path) -> VideoMetadata:
         input_path = input_path.resolve()
 
@@ -132,6 +137,14 @@ class VideoProcessor:
                     frame_number=processed_frames,
                 )
 
+                new_count_events: list[CountEvent] = []
+                if self._line_counter is not None:
+                    new_count_events = self._line_counter.update(
+                        tracked_vehicles=tracked_vehicles,
+                        frame_number=processed_frames,
+                        timestamp_seconds = timestamp_seconds,
+                    )
+
                 total_detections += len(tracked_vehicles)
 
                 maximum_vehicles_in_frame = max(
@@ -155,6 +168,7 @@ class VideoProcessor:
                     detections=detections,
                     tracked_vehicles=tracked_vehicles,
                     track_history=track_history,
+                    new_count_events=new_count_events,
                 )
 
                 writer.write(processed_frame)
@@ -211,6 +225,18 @@ class VideoProcessor:
             unique_tracks_by_class=track_history.unique_counts_by_class(),
         )
 
+        counting_statistics = None 
+
+        if self._line_counter is not None:
+            counting_snapshot = self._line_counter.snapshot()
+
+            counting_statistics = CountingStatistics(
+                line_id = self._line_counter.counting_line.line_id,
+                total_crossings = counting_snapshot.total_crossings,
+                counts_by_class = counting_snapshot.counts_by_class,
+                counts_by_direction = counting_snapshot.counts_by_direction,
+            )
+
         summary = ProcessingSummary(
             input_path=input_path,
             output_path=output_path,
@@ -224,6 +250,7 @@ class VideoProcessor:
             ),
             tracking_statistics=tracking_statistics,
             detection_statistics=detection_statistics,
+            counting_statistics=counting_statistics,
         )
 
         if summary_path is not None:
@@ -310,6 +337,7 @@ class VideoProcessor:
         detections: list[Detection],
         tracked_vehicles: list[TrackedVehicle],
         track_history: TrackHistory,
+        new_count_events: list[CountEvent] ,
     ) -> MatLike:
         draw_detections(frame, detections)
 
@@ -318,6 +346,13 @@ class VideoProcessor:
             tracked_vehicles=tracked_vehicles,
             track_history=track_history,
         )
+
+        if self._line_counter is not None:
+            draw_counting_information(
+                frame=frame,
+                line_counter=self._line_counter,
+                new_events=new_count_events,
+            )
 
         overlay_height = min(
             100,
