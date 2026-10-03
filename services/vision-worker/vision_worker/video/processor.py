@@ -17,11 +17,18 @@ from vision_worker.tracking.yolo_tracker import YoloVehicleTracker
 from vision_worker.counting.drawer import draw_counting_information
 from vision_worker.counting.line_counter import LineCounter
 from vision_worker.counting.models import CountEvent
+from vision_worker.calibration.drawer import (
+    draw_calibration_region,
+)
+from vision_worker.speed.drawer import draw_vehicle_speeds
+from vision_worker.speed.estimator import SpeedEstimator
+from vision_worker.speed.models import VehicleSpeed
 from vision_worker.video.models import (
     CountingStatistics,
     DetectionStatistics,
     ProcessingSummary,
     TrackingStatistics,
+    SpeedStatistics,
     VideoMetadata,
 )
 
@@ -38,6 +45,7 @@ class VideoProcessor:
         detector: YoloVehicleDetector | None = None,
         tracker: YoloVehicleTracker | None = None,
         line_counter: LineCounter | None = None,
+        speed_estimator: SpeedEstimator | None = None,
         codec: str = "mp4v",
     ) -> None:
         if len(codec) != 4:
@@ -47,6 +55,8 @@ class VideoProcessor:
         self._codec = codec
         self._tracker = tracker
         self._line_counter = line_counter
+        self._speed_estimator = speed_estimator
+
     def read_metadata(self, input_path: Path) -> VideoMetadata:
         input_path = input_path.resolve()
 
@@ -145,6 +155,14 @@ class VideoProcessor:
                         timestamp_seconds = timestamp_seconds,
                     )
 
+                vehicle_speeds: dict[int, VehicleSpeed] = {}
+                if self._speed_estimator is not None:
+                    vehicle_speeds = self._speed_estimator.update(
+                        tracked_vehicles=tracked_vehicles,
+                        timestamp_seconds=timestamp_seconds,
+                    )
+
+
                 total_detections += len(tracked_vehicles)
 
                 maximum_vehicles_in_frame = max(
@@ -169,6 +187,7 @@ class VideoProcessor:
                     tracked_vehicles=tracked_vehicles,
                     track_history=track_history,
                     new_count_events=new_count_events,
+                    vehicle_speeds=vehicle_speeds,
                 )
 
                 writer.write(processed_frame)
@@ -237,6 +256,16 @@ class VideoProcessor:
                 counts_by_direction = counting_snapshot.counts_by_direction,
             )
 
+        speed_statistics = None
+        if self._speed_estimator is not None:
+            speed_statistics = SpeedStatistics(
+                unit = "km/h",
+                vehicles_measured = (self._speed_estimator.vehicles_measured()),
+                average_estimated_speed_kmh = (self._speed_estimator.average_speed_kmh()),
+                maximum_estimated_speed_kmh = (self._speed_estimator.maximum_speed_kmh()),
+                average_by_class = (self._speed_estimator.averages_by_class()),
+            ),
+
         summary = ProcessingSummary(
             input_path=input_path,
             output_path=output_path,
@@ -251,6 +280,7 @@ class VideoProcessor:
             tracking_statistics=tracking_statistics,
             detection_statistics=detection_statistics,
             counting_statistics=counting_statistics,
+            speed_statistics=speed_statistics,
         )
 
         if summary_path is not None:
@@ -338,6 +368,7 @@ class VideoProcessor:
         tracked_vehicles: list[TrackedVehicle],
         track_history: TrackHistory,
         new_count_events: list[CountEvent] ,
+        vehicle_speeds: dict[int, VehicleSpeed]
     ) -> MatLike:
         draw_detections(frame, detections)
 
@@ -345,6 +376,18 @@ class VideoProcessor:
             frame=frame,
             tracked_vehicles=tracked_vehicles,
             track_history=track_history,
+        )
+
+        if self._speed_estimator is not None:
+            draw_calibration_region(
+                frame = frame,
+                config = self._speed_estimator.transformer.config,
+            )
+
+        draw_vehicle_speeds(
+            frame = frame,
+            tracked_vehicles = tracked_vehicles,
+            speeds = vehicle_speeds,
         )
 
         if self._line_counter is not None:

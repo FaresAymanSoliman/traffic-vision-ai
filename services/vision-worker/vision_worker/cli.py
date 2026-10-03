@@ -20,6 +20,13 @@ from vision_worker.counting.line_counter import LineCounter
 from vision_worker.counting.models import CountingLine
 from vision_worker.tracking.models import Point
 
+from vision_worker.calibration.homography import (
+    HomographyTransformer,
+)
+from vision_worker.calibration.models import CalibrationConfig
+from vision_worker.speed.estimator import SpeedEstimator
+
+
 
 
 
@@ -27,6 +34,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=("Detect vehicles in a traffic video using YOLO.")
     )
+    
 
     parser.add_argument(
         "--tracker",
@@ -121,7 +129,52 @@ def parse_arguments() -> argparse.Namespace:
         default = 2.0,
         help = "Minimum vehicle movement (in pixels) to count as a crossing event.",
     )
-    
+
+    parser.add_argument("--calibration-tl-x", type = int, required = True)
+    parser.add_argument("--calibration-tl-y", type = int, required = True)
+
+    parser.add_argument("--calibration-tr-x", type = int, required = True)
+    parser.add_argument("--calibration-tr-y", type = int, required = True)
+
+    parser.add_argument("--calibration-br-x", type = int, required = True)
+    parser.add_argument("--calibration-br-y", type = int, required = True)
+
+    parser.add_argument("--calibration-bl-x", type = int, required = True)
+    parser.add_argument("--calibration-bl-y", type = int, required = True)
+
+
+    parser.add_argument(
+        "--road-width-meters",
+        type = float,
+        required = True,
+    )
+
+    parser.add_argument(
+        "--road-length-meters",
+        type = float,
+        required = True,
+    )
+
+    parser.add_argument(
+        "--speed-history-seconds",
+        type = float,
+        default = 1.0,
+    )
+
+    parser.add_argument(
+        "--minimum-speed-observation-seconds",
+        type = float,
+        default = 0.4,
+    )
+
+    parser.add_argument(
+        "--maximum-speed-kmh",
+        type = float,
+        default = 180.0,
+
+    )
+
+
 
     return parser.parse_args()
 
@@ -178,8 +231,43 @@ def main() -> None:
             minimum_movement_pixels = arguments.minimum_movement,
         )
 
+        calibration_config = CalibrationConfig(
+            top_left =Point(
+                x = arguments.calibration_tl_x,
+                y = arguments.calibration_tl_y,
+            ),
+            top_right = Point(
+                x = arguments.calibration_tr_x,
+                y = arguments.calibration_tr_y,
+            ),
+
+            bottom_right = Point(
+                x = arguments.calibration_br_x, 
+                y = arguments.calibration_br_y,
+            ),
+
+            bottom_left = Point(
+                x = arguments.calibration_bl_x,
+                y = arguments.calibration_bl_y,
+            ),
+
+            road_width_meters = arguments.road_width_meters,
+            road_length_meters = arguments.road_length_meters,
+
+        )
+
+        transformer = HomographyTransformer(calibration_config)
+
+        speed_estimator = SpeedEstimator(
+            transformer=transformer,
+            history_seconds=arguments.speed_history_seconds,
+            minimum_observation_seconds=(arguments.minimum_speed_observation_seconds),
+            maximum_speed_kmh=arguments.maximum_speed_kmh,
+
+        )
+
         #processor = VideoProcessor(detector=detector)
-        processor = VideoProcessor(tracker=tracker, line_counter=line_counter)
+        processor = VideoProcessor(tracker=tracker, line_counter=line_counter, speed_estimator=speed_estimator)
 
 
         summary = processor.process(

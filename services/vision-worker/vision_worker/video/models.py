@@ -77,6 +77,32 @@ class CountingStatistics:
 
 
 @dataclass(frozen=True, slots=True)
+class SpeedStatistics:
+    unit: str
+    vehicles_measured: int
+    average_estimated_speed_kmh: float
+    maximum_estimated_speed_kmh: float
+    average_by_class: dict[str, float] = field(
+        default_factory=dict
+    )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "unit": self.unit,
+            "vehicles_measured": self.vehicles_measured,
+            "average_estimated_speed_kmh": round(
+                self.average_estimated_speed_kmh,
+                2,
+            ),
+            "maximum_estimated_speed_kmh": round(
+                self.maximum_estimated_speed_kmh,
+                2,
+            ),
+            "average_by_class": self.average_by_class,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessingSummary:
     input_path: Path
     output_path: Path
@@ -88,6 +114,7 @@ class ProcessingSummary:
     detection_statistics: DetectionStatistics | None = None
     tracking_statistics: TrackingStatistics | None = None
     counting_statistics: CountingStatistics | None = None
+    speed_statistics: SpeedStatistics | None = None
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
 
@@ -113,5 +140,8 @@ class ProcessingSummary:
 
         if self.counting_statistics is not None:
             result["counting_statistics"] = self.counting_statistics.to_dict()
+
+        if self.speed_statistics is not None:
+            result["speed_statistics"] = self.speed_statistics.to_dict()
 
         return result
