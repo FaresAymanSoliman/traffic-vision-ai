@@ -103,6 +103,36 @@ class SpeedStatistics:
 
 
 @dataclass(frozen=True, slots=True)
+class DensityStatistics:
+    final_level: str
+    maximum_level: str
+    average_occupancy_ratio: float
+    maximum_occupancy_ratio: float
+    maximum_active_vehicles: int
+    level_frame_counts: dict[str, int] = field(
+        default_factory=dict
+    )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "final_level": self.final_level,
+            "maximum_level": self.maximum_level,
+            "average_occupancy_ratio": round(
+                self.average_occupancy_ratio,
+                4,
+            ),
+            "maximum_occupancy_ratio": round(
+                self.maximum_occupancy_ratio,
+                4,
+            ),
+            "maximum_active_vehicles": (
+                self.maximum_active_vehicles
+            ),
+            "level_frame_counts": self.level_frame_counts,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessingSummary:
     input_path: Path
     output_path: Path
@@ -115,6 +145,7 @@ class ProcessingSummary:
     tracking_statistics: TrackingStatistics | None = None
     counting_statistics: CountingStatistics | None = None
     speed_statistics: SpeedStatistics | None = None
+    density_statistics: DensityStatistics | None = None
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
 
@@ -142,6 +173,12 @@ class ProcessingSummary:
             result["counting_statistics"] = self.counting_statistics.to_dict()
 
         if self.speed_statistics is not None:
-            result["speed_statistics"] = self.speed_statistics.to_dict()
+            result["speed_statistics"] = (self.speed_statistics.to_dict())
+
+
+        if self.density_statistics is not None:
+            result["denisty_statistics"] = (
+                self.density_statistics.to_dict()
+            )
 
         return result
