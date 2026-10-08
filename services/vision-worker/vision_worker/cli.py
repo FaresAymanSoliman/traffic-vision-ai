@@ -2,6 +2,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
+import cv2
+
+from vision_worker.density.estimator import DensityEstimator
+from vision_worker.density.models import DensityConfig
+from vision_worker.density.occupancy import (
+    RoadOccupancyCalculator,
+)
 
 from vision_worker.detection.yolo_detector import (
     DetectorConfigurationError,
@@ -174,6 +181,42 @@ def parse_arguments() -> argparse.Namespace:
 
     )
 
+    parser.add_argument(
+        "--medium-density-vehicles",
+        type = int,
+        default=7,
+    )
+
+    parser.add_argument(
+        "--high-density-vehicles",
+        type = int,
+        default = 15,
+    )
+
+    parser.add_argument(
+        "--medium-occupancy-ratio",
+        type = float,
+        default = 0.18,
+    )
+
+    parser.add_argument(
+        "--high-occupancy-ratio",
+        type = float,
+        default = 0.40,
+    )
+
+    parser.add_argument(
+        "--density-low-speed-kmh",
+        type = float,
+        default = 20.0,
+    )
+
+    parser.add_argument(
+        "--density-minimum-speed-rule-vehicles",
+        type =int,
+        default = 5,
+    )
+
 
 
     return parser.parse_args()
@@ -191,6 +234,33 @@ def display_progress(
         end="",
         flush=True,
     )
+
+def read_video_dimensions(
+    input_path: Path,
+) -> tuple[int, int]:
+    capture = cv2.VideoCapture(str(input_path))
+
+    try:
+        if not capture.isOpened():
+            raise ValueError(
+                f"Could not open input video: {input_path}"
+            )
+
+        width = int(
+            capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+        )
+        height = int(
+            capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        )
+
+        if width <= 0 or height <= 0:
+            raise ValueError(
+                "Input video has invalid dimensions."
+            )
+
+        return width, height
+    finally:
+        capture.release()
 
 
 def main() -> None:
@@ -256,6 +326,49 @@ def main() -> None:
 
         )
 
+        frame_width, frame_height = read_video_dimensions(
+            arguments.input
+        )
+
+        road_polygon = (
+            calibration_config.top_left,
+            calibration_config.top_right,
+            calibration_config.bottom_right,
+            calibration_config.bottom_left,
+        )
+
+        occupancy_calculator = RoadOccupancyCalculator(
+            road_polygon=road_polygon,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+
+        density_config = DensityConfig(
+            medium_vehicle_count=(
+                arguments.medium_density_vehicles
+            ),
+            high_vehicle_count=(
+                arguments.high_density_vehicles
+            ),
+            medium_occupancy_ratio=(
+                arguments.medium_occupancy_ratio
+            ),
+            high_occupancy_ratio=(
+                arguments.high_occupancy_ratio
+            ),
+            low_speed_threshold_kmh=(
+                arguments.density_low_speed_kmh
+            ),
+            minimum_vehicles_for_speed_rule=(
+                arguments.density_minimum_speed_rule_vehicles
+            ),
+        )
+
+        density_estimator = DensityEstimator(
+            occupancy_calculator=occupancy_calculator,
+            config=density_config
+        )
+
         transformer = HomographyTransformer(calibration_config)
 
         speed_estimator = SpeedEstimator(
@@ -267,7 +380,7 @@ def main() -> None:
         )
 
         #processor = VideoProcessor(detector=detector)
-        processor = VideoProcessor(tracker=tracker, line_counter=line_counter, speed_estimator=speed_estimator)
+        processor = VideoProcessor(tracker=tracker, line_counter=line_counter, speed_estimator=speed_estimator,density_estimator=density_estimator,)
 
 
         summary = processor.process(

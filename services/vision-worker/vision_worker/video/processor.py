@@ -20,11 +20,17 @@ from vision_worker.counting.models import CountEvent
 from vision_worker.calibration.drawer import (
     draw_calibration_region,
 )
+from vision_worker.density.drawer import (
+    draw_density_information,
+)
+from vision_worker.density.estimator import DensityEstimator
+from vision_worker.density.models import DensityMeasurement
 from vision_worker.speed.drawer import draw_vehicle_speeds
 from vision_worker.speed.estimator import SpeedEstimator
 from vision_worker.speed.models import VehicleSpeed
 from vision_worker.video.models import (
     CountingStatistics,
+    DensityStatistics,
     DetectionStatistics,
     ProcessingSummary,
     TrackingStatistics,
@@ -46,6 +52,7 @@ class VideoProcessor:
         tracker: YoloVehicleTracker | None = None,
         line_counter: LineCounter | None = None,
         speed_estimator: SpeedEstimator | None = None,
+        density_estimator: DensityEstimator | None = None,
         codec: str = "mp4v",
     ) -> None:
         if len(codec) != 4:
@@ -56,6 +63,7 @@ class VideoProcessor:
         self._tracker = tracker
         self._line_counter = line_counter
         self._speed_estimator = speed_estimator
+        self._density_estimator = density_estimator
 
     def read_metadata(self, input_path: Path) -> VideoMetadata:
         input_path = input_path.resolve()
@@ -162,6 +170,13 @@ class VideoProcessor:
                         timestamp_seconds=timestamp_seconds,
                     )
 
+                density_measurement: DensityMeasurement | None = None
+                if self._density_estimator is not None:
+                 density_measurement = self._density_estimator.update(
+                     tracked_vehicles = tracked_vehicles,
+                        vehicle_speeds = vehicle_speeds,
+                    )
+
 
                 total_detections += len(tracked_vehicles)
 
@@ -188,6 +203,7 @@ class VideoProcessor:
                     track_history=track_history,
                     new_count_events=new_count_events,
                     vehicle_speeds=vehicle_speeds,
+                    density_measurement = density_measurement,
                 )
 
                 writer.write(processed_frame)
@@ -266,6 +282,38 @@ class VideoProcessor:
                 average_by_class = (self._speed_estimator.averages_by_class()),
             ),
 
+
+        density_statistics = None 
+        if self._density_estimator is not None:
+            final_density = (
+                self._density_estimator.final_measurement()
+            )
+
+            if final_density is not None:
+                density_statistics = DensityStatistics(
+                    final_level = final_density.level.value,
+                    maximum_level = (
+                        self._density_estimator.maximum_level().value
+                    ),
+                    average_occupancy_ratio=(
+                        self._density_estimator.average_occupancy_ratio()
+                    ),
+                    maximum_occupancy_ratio = (
+                        self._density_estimator.maximum_occupancy_ratio()
+                    ),
+                    maximum_active_vehicles=(
+                        self._density_estimator.maximum_active_vehicles()
+                    ),
+                    level_frame_counts=(
+                        self._density_estimator.level_frame_counts()
+                    ),
+
+
+
+                )
+
+        
+
         summary = ProcessingSummary(
             input_path=input_path,
             output_path=output_path,
@@ -281,6 +329,7 @@ class VideoProcessor:
             detection_statistics=detection_statistics,
             counting_statistics=counting_statistics,
             speed_statistics=speed_statistics,
+            density_statistics=density_statistics
         )
 
         if summary_path is not None:
@@ -368,7 +417,8 @@ class VideoProcessor:
         tracked_vehicles: list[TrackedVehicle],
         track_history: TrackHistory,
         new_count_events: list[CountEvent] ,
-        vehicle_speeds: dict[int, VehicleSpeed]
+        vehicle_speeds: dict[int, VehicleSpeed],
+        density_measurement : DensityMeasurement | None,
     ) -> MatLike:
         draw_detections(frame, detections)
 
@@ -389,6 +439,17 @@ class VideoProcessor:
             tracked_vehicles = tracked_vehicles,
             speeds = vehicle_speeds,
         )
+
+        if (
+            self._density_estimator is not None and density_measurement is not None 
+        ):
+            draw_density_information(
+                frame = frame,
+                road_polygon = (
+                    self._density_estimator.occupancy_calculator.road_polygon
+                ),
+                measurement= density_measurement,
+            )
 
         if self._line_counter is not None:
             draw_counting_information(
