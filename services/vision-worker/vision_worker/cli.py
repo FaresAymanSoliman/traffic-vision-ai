@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 import cv2
 
+from vision_worker.violations.models import WrongWayConfig
+from vision_worker.violations.wrong_way import WrongWayDetector
 from vision_worker.density.estimator import DensityEstimator
 from vision_worker.density.models import DensityConfig
 from vision_worker.density.occupancy import (
@@ -217,6 +219,50 @@ def parse_arguments() -> argparse.Namespace:
         default = 5,
     )
 
+    parser.add_argument(
+        "--allowed-direction-x",
+        type = float,
+        required = True,
+        help = (
+            "Allowed movement X component. "
+            "Righ is positive and left is negative. "
+        ),
+    )
+
+    parser.add_argument(
+        "--allowed-direction-y",
+        type = float,
+        required=True,
+        help = (
+            "Allowed movement Y component. "
+            "Down is positive and up is negative"
+        ),
+    )
+
+    parser.add_argument(
+        "--wrong-way-minimum-displacement",
+        type = float,
+        default = 20.0,
+    )
+
+    parser.add_argument(
+        "--wrong-way-confirmation-observations",
+        type = int,
+        default = 5,
+    )
+
+    parser.add_argument(
+        "--wrong-way-similarity-threshold",
+        type = float,
+        default = -0.5,
+    )
+
+    parser.add_argument(
+        "--wrong-way-history-size",
+        type = int,
+        default=10,
+    )
+
 
 
     return parser.parse_args()
@@ -369,6 +415,25 @@ def main() -> None:
             config=density_config
         )
 
+        wrong_way_config = WrongWayConfig(
+            allowed_direction_x=arguments.allowed_direction_x,
+            allowed_direction_y=arguments.allowed_direction_y,
+            minimum_displacement_pixels=(
+                arguments.wrong_way_minimum_displacement
+            ),
+            confirmation_observations=(
+                arguments.wrong_way_confirmation_observations
+            ),
+            similarity_threshold=(
+                arguments.wrong_way_similarity_threshold
+            ),
+            history_size=arguments.wrong_way_history_size,
+        )
+
+        wrong_way_detector = WrongWayDetector(
+            config=wrong_way_config
+        )
+
         transformer = HomographyTransformer(calibration_config)
 
         speed_estimator = SpeedEstimator(
@@ -380,7 +445,12 @@ def main() -> None:
         )
 
         #processor = VideoProcessor(detector=detector)
-        processor = VideoProcessor(tracker=tracker, line_counter=line_counter, speed_estimator=speed_estimator,density_estimator=density_estimator,)
+        processor = VideoProcessor(tracker=tracker, 
+                                   line_counter=line_counter,
+                                     speed_estimator=speed_estimator,
+                                     density_estimator=density_estimator,
+                                     wrong_way_detector=wrong_way_detector
+                                     )
 
 
         summary = processor.process(
