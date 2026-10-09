@@ -23,6 +23,11 @@ from vision_worker.calibration.drawer import (
 from vision_worker.density.drawer import (
     draw_density_information,
 )
+from vision_worker.violations.drawer import (
+    draw_wrong_way_information,
+)
+from vision_worker.violations.models import ViolationEvent
+from vision_worker.violations.wrong_way import WrongWayDetector
 from vision_worker.density.estimator import DensityEstimator
 from vision_worker.density.models import DensityMeasurement
 from vision_worker.speed.drawer import draw_vehicle_speeds
@@ -36,6 +41,7 @@ from vision_worker.video.models import (
     TrackingStatistics,
     SpeedStatistics,
     VideoMetadata,
+    ViolationStatistics,
 )
 
 ProgressCallback = Callable[[int, int, float], None]
@@ -53,6 +59,7 @@ class VideoProcessor:
         line_counter: LineCounter | None = None,
         speed_estimator: SpeedEstimator | None = None,
         density_estimator: DensityEstimator | None = None,
+        wrong_way_detector: WrongWayDetector | None = None,
         codec: str = "mp4v",
     ) -> None:
         if len(codec) != 4:
@@ -64,6 +71,7 @@ class VideoProcessor:
         self._line_counter = line_counter
         self._speed_estimator = speed_estimator
         self._density_estimator = density_estimator
+        self._wrong_way_detector = wrong_way_detector
 
     def read_metadata(self, input_path: Path) -> VideoMetadata:
         input_path = input_path.resolve()
@@ -177,6 +185,17 @@ class VideoProcessor:
                         vehicle_speeds = vehicle_speeds,
                     )
 
+                new_violation_events: list[ViolationEvent] = []
+
+                if self._wrong_way_detector is not None:
+                    new_violation_events = (
+                    self._wrong_way_detector.update(
+                    tracked_vehicles=tracked_vehicles,
+                    frame_number=processed_frames,
+                    timestamp_seconds=timestamp_seconds,
+                    )   
+                    )
+
 
                 total_detections += len(tracked_vehicles)
 
@@ -204,6 +223,7 @@ class VideoProcessor:
                     new_count_events=new_count_events,
                     vehicle_speeds=vehicle_speeds,
                     density_measurement = density_measurement,
+                    new_violation_events=new_violation_events,
                 )
 
                 writer.write(processed_frame)
@@ -280,7 +300,7 @@ class VideoProcessor:
                 average_estimated_speed_kmh = (self._speed_estimator.average_speed_kmh()),
                 maximum_estimated_speed_kmh = (self._speed_estimator.maximum_speed_kmh()),
                 average_by_class = (self._speed_estimator.averages_by_class()),
-            ),
+            )
 
 
         density_statistics = None 
@@ -307,10 +327,26 @@ class VideoProcessor:
                     level_frame_counts=(
                         self._density_estimator.level_frame_counts()
                     ),
-
-
-
                 )
+
+        violation_statistics = None 
+        if self._wrong_way_detector is not None: 
+            violation_events = list (
+            self._wrong_way_detector.events
+            )        
+
+            violation_statistics = ViolationStatistics(
+                total_violations=len(violation_events),
+                counts_by_type={
+                    "wrong_way": len(violation_events),
+                },
+                counts_by_class=(self._wrong_way_detector.counts_by_class()),
+                events=[
+                    event.to_dict() for event in violation_events
+                ],
+            )
+
+         
 
         
 
@@ -329,7 +365,8 @@ class VideoProcessor:
             detection_statistics=detection_statistics,
             counting_statistics=counting_statistics,
             speed_statistics=speed_statistics,
-            density_statistics=density_statistics
+            density_statistics=density_statistics,
+            violation_statistics=violation_statistics,
         )
 
         if summary_path is not None:
@@ -419,6 +456,7 @@ class VideoProcessor:
         new_count_events: list[CountEvent] ,
         vehicle_speeds: dict[int, VehicleSpeed],
         density_measurement : DensityMeasurement | None,
+        new_violation_events: list[ViolationEvent],
     ) -> MatLike:
         draw_detections(frame, detections)
 
@@ -449,6 +487,18 @@ class VideoProcessor:
                     self._density_estimator.occupancy_calculator.road_polygon
                 ),
                 measurement= density_measurement,
+            )
+        if self._wrong_way_detector is not None:
+            draw_wrong_way_information(
+                    frame=frame,
+                    tracked_vehicles=tracked_vehicles,
+                    reported_track_ids=(
+                    self._wrong_way_detector.reported_track_ids
+                ),
+                new_events=new_violation_events,
+                total_events=(
+                    self._wrong_way_detector.total_events()
+                ),
             )
 
         if self._line_counter is not None:

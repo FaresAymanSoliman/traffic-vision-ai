@@ -133,6 +133,28 @@ class DensityStatistics:
 
 
 @dataclass(frozen=True, slots=True)
+class ViolationStatistics:
+    total_violations: int
+    counts_by_type: dict[str, int] = field(
+        default_factory=dict
+    )
+    counts_by_class: dict[str, int] = field(
+        default_factory=dict
+    )
+    events: list[dict[str, object]] = field(
+        default_factory=list
+    )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "total_violations": self.total_violations,
+            "counts_by_type": self.counts_by_type,
+            "counts_by_class": self.counts_by_class,
+            "events": self.events,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessingSummary:
     input_path: Path
     output_path: Path
@@ -146,6 +168,8 @@ class ProcessingSummary:
     counting_statistics: CountingStatistics | None = None
     speed_statistics: SpeedStatistics | None = None
     density_statistics: DensityStatistics | None = None
+    violation_statistics: ViolationStatistics | None = None
+
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
 
@@ -179,6 +203,11 @@ class ProcessingSummary:
         if self.density_statistics is not None:
             result["denisty_statistics"] = (
                 self.density_statistics.to_dict()
+            )
+
+        if self.violation_statistics is not None:
+            result["violation_statistics"] = (
+                self.violation_statistics.to_dict()
             )
 
         return result
